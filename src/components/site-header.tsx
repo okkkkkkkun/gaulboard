@@ -6,8 +6,8 @@ import { cn } from "cn"
 
 export function SiteHeader({ action }: { action?: ReactNode }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#3A1458] text-[#F6F1E8]">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-[#3A1458] pt-[env(safe-area-inset-top)] text-[#F6F1E8]">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
         <Link href="/" className="flex min-w-0 items-center gap-2.5">
           <Mark light />
           <span className="min-w-0">
@@ -20,7 +20,7 @@ export function SiteHeader({ action }: { action?: ReactNode }) {
         {action ?? (
           <Link
             href="/matches/new"
-            className={cn(buttonVariants({ size: "lg" }), "h-10 bg-[#F6F1E8] px-3 text-[#3A1458] hover:bg-white")}
+            className={cn(buttonVariants({ size: "lg" }), "min-h-11 bg-[#F6F1E8] px-3 text-[#3A1458] hover:bg-white")}
           >
             新しい試合
           </Link>

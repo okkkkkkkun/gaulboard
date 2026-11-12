@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState, type ReactNode } from "react"
+import Link from "next/link"
+import { useParams, useRouter } from "next/navigation"
 import { PitchEditor } from "@/components/pitch-editor"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,9 +16,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { draftFromMemo, removeCard, saveCard } from "@/app/actions"
-import { COMPETITIONS, CLUB_SHORT, hasTacticalText, VENUE_LABEL } from "@/lib/card-logic"
+import { COMPETITIONS, CLUB_SHORT, hasTacticalText, toDraft, validateCardInput, VENUE_LABEL } from "@/lib/card-logic"
 import { FORMATION_IDS, reseatPlayers } from "@/lib/formations"
+import { persistCard, readCard, removeStoredCard } from "@/lib/repository"
+import { useIntegrations } from "@/components/use-integrations"
 import type { TacticalSuggestion } from "@/lib/ai/parse"
 import type { CardDraft, Venue } from "@/lib/types"
 
@@ -25,10 +27,11 @@ type Props = {
   mode: "create" | "edit"
   cardId: string | null
   initial: CardDraft
-  aiEnabled: boolean
 }
 
-export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
+export function MatchEditor({ mode, cardId, initial }: Props) {
+  const integrations = useIntegrations()
+  const aiEnabled = integrations?.ai ?? false
   const router = useRouter()
   const [draft, setDraft] = useState<CardDraft>(initial)
   const [error, setError] = useState<string | null>(null)
@@ -76,16 +79,23 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
     setConfirmAi(false)
     setDrafting(true)
     setError(null)
-    const result = await draftFromMemo({
-      date: draft.date,
-      opponent: draft.opponent,
-      venue: draft.venue,
-      competition: draft.competition,
-      ourScore: draft.ourScore,
-      theirScore: draft.theirScore,
-      formation: draft.formation,
-      memo: draft.memo,
+    const response = await fetch("/api/ai/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date: draft.date,
+        opponent: draft.opponent,
+        venue: draft.venue,
+        competition: draft.competition,
+        ourScore: draft.ourScore,
+        theirScore: draft.theirScore,
+        formation: draft.formation,
+        memo: draft.memo,
+      }),
     })
+    const result = (await response.json()) as
+      | { ok: true; suggestion: TacticalSuggestion }
+      | { ok: false; message: string }
     setDrafting(false)
     if (!result.ok) {
       setError(result.message)
@@ -97,24 +107,35 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
   async function onSave() {
     setSaving(true)
     setError(null)
-    const result = await saveCard(cardId, {
+    const parsed = validateCardInput({
       ...draft,
       ourScore: Number(draft.ourScore),
       theirScore: Number(draft.theirScore),
     })
-    if (!result.ok) {
+    if (!parsed.ok) {
       setSaving(false)
-      setError(result.message)
+      setError(parsed.message)
       return
     }
-    router.push(`/matches/${result.id}`)
+    try {
+      const card = await persistCard(cardId, parsed.data)
+      if (!card) {
+        setSaving(false)
+        setError("カードが見つかりませんでした。")
+        return
+      }
+      router.push(`/matches/${card.id}`)
+    } catch {
+      setSaving(false)
+      setError("この端末に保存できませんでした。")
+    }
   }
 
   async function onDelete() {
     if (!cardId) return
-    const result = await removeCard(cardId)
-    if (!result.ok) {
-      setError(result.message)
+    const removed = await removeStoredCard(cardId)
+    if (!removed) {
+      setError("カードが見つかりませんでした。")
       setConfirmDelete(false)
       return
     }
@@ -122,7 +143,7 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 pb-28">
+    <div className="mx-auto max-w-6xl px-4 py-6 pb-[calc(7rem+env(safe-area-inset-bottom))]">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] tracking-[0.18em] text-[#5C2D86]">MATCH SHEET</p>
@@ -179,6 +200,7 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
                     <Button
                       key={venue}
                       type="button"
+                      className="min-h-11"
                       variant={draft.venue === venue ? "default" : "outline"}
                       aria-pressed={draft.venue === venue}
                       onClick={() => patch({ venue })}
@@ -216,7 +238,8 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
                   <Button
                     key={id}
                     type="button"
-                    size="sm"
+                    size="lg"
+                    className="min-h-11 px-3"
                     variant={draft.formation === id ? "default" : "outline"}
                     onClick={() => applyFormation(id)}
                   >
@@ -268,9 +291,11 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
                 {drafting ? "下書き中…" : "メモから下書き"}
               </Button>
               <p className="mt-2 text-xs leading-relaxed text-[#6d6274]">
-                {aiEnabled
-                  ? "メモをサーバー側のモデルに送り、下の欄を下書きします。キーはブラウザに出ません。"
-                  : "AI下書きはオフです。サーバーに OPENAI_API_KEY を入れると使えます。キーがなくても、下の欄はすべて手で書けます。"}
+                {integrations === null
+                  ? "下書きが使えるか確認しています。"
+                  : aiEnabled
+                    ? "メモをサーバー側のモデルに送り、下の欄を下書きします。キーはブラウザに出ません。"
+                    : "AI下書きはオフです。サーバーに OPENAI_API_KEY を入れると使えます。キーがなくても、下の欄はすべて手で書けます。"}
               </p>
             </div>
           </section>
@@ -321,8 +346,8 @@ export function MatchEditor({ mode, cardId, initial, aiEnabled }: Props) {
         </aside>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#E0D5C8] bg-[#FBF8F3]/95 p-3 backdrop-blur lg:hidden">
-        <Button type="button" size="lg" className="h-11 w-full" disabled={saving} onClick={() => void onSave()}>
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#E0D5C8] bg-[#FBF8F3]/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+        <Button type="button" size="lg" className="h-12 w-full" disabled={saving} onClick={() => void onSave()}>
           {saving ? "保存しています…" : "保存してカードを見る"}
         </Button>
       </div>
@@ -373,6 +398,44 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor: string; c
       {children}
     </div>
   )
+}
+
+export function EditRoute() {
+  const params = useParams<{ id: string }>()
+  const [initial, setInitial] = useState<CardDraft | null>(null)
+  const [missing, setMissing] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    readCard(params.id)
+      .then((card) => {
+        if (cancelled) return
+        if (!card) {
+          setMissing(true)
+          return
+        }
+        setInitial(toDraft(card))
+      })
+      .catch(() => {
+        if (!cancelled) setMissing(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [params.id])
+
+  if (missing) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="font-mincho text-3xl">そのシートはありません</h1>
+        <Link href="/" className="mt-6 inline-block text-sm text-[#5C2D86] underline underline-offset-2">
+          アーカイブへ戻る
+        </Link>
+      </div>
+    )
+  }
+  if (!initial) return <p className="px-4 py-10 text-sm text-[#6d6274]">読み込んでいます…</p>
+  return <MatchEditor mode="edit" cardId={params.id} initial={initial} />
 }
 
 function ScoreInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {

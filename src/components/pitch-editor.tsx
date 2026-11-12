@@ -44,10 +44,19 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
     onPlayersChange(players.map((player) => (player.id === id ? { ...player, ...patch } : player)))
   }
 
+  function lockScroll() {
+    document.body.style.overflow = "hidden"
+  }
+
+  function unlockScroll() {
+    document.body.style.overflow = ""
+  }
+
   function onPlayerPointerDown(id: string, event: PointerEvent<SVGGElement>) {
     if (mode === "arrow") return
     event.stopPropagation()
     event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId)
+    lockScroll()
     drag.current = id
     setSelectedId(id)
   }
@@ -56,6 +65,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
     const point = pointOf(event)
     if (!point) return
     if (mode === "place") return
+    lockScroll()
     event.currentTarget.setPointerCapture(event.pointerId)
     const next = {
       id: "draft",
@@ -94,6 +104,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
       setDraftArrow(null)
     }
     drag.current = null
+    unlockScroll()
   }
 
   function nudge(dx: number, dy: number) {
@@ -137,6 +148,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
           <Button
             type="button"
             size="lg"
+            className="min-h-11 px-3"
             variant={mode === "place" ? "default" : "outline"}
             aria-pressed={mode === "place"}
             onClick={() => setMode("place")}
@@ -146,6 +158,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
           <Button
             type="button"
             size="lg"
+            className="min-h-11 px-3"
             variant={mode === "arrow" ? "default" : "outline"}
             aria-pressed={mode === "arrow"}
             onClick={() => setMode("arrow")}
@@ -157,6 +170,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
               <Button
                 type="button"
                 size="lg"
+            className="min-h-11 px-3"
                 variant={arrowKind === "press" ? "default" : "outline"}
                 onClick={() => setArrowKind("press")}
               >
@@ -165,6 +179,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
               <Button
                 type="button"
                 size="lg"
+            className="min-h-11 px-3"
                 variant={arrowKind === "move" ? "default" : "outline"}
                 onClick={() => setArrowKind("move")}
               >
@@ -178,7 +193,7 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
             ref={(node) => {
               svgRef.current = node?.querySelector("svg") ?? null
             }}
-            className="relative aspect-[68/105] bg-[#145C3C]"
+            className="relative aspect-[68/105] touch-none bg-[#145C3C] overscroll-none"
           >
             <PitchGraphic
               uid="editor"
@@ -228,17 +243,17 @@ export function PitchEditor({ players, arrows, onPlayersChange, onArrowsChange }
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <span />
-                <Button type="button" variant="outline" onClick={() => nudge(0, -1.5)} aria-label="上へ">
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => nudge(0, -1.5)} aria-label="上へ">
                   上
                 </Button>
                 <span />
-                <Button type="button" variant="outline" onClick={() => nudge(-1.5, 0)} aria-label="左へ">
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => nudge(-1.5, 0)} aria-label="左へ">
                   左
                 </Button>
-                <Button type="button" variant="outline" onClick={() => nudge(0, 1.5)} aria-label="下へ">
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => nudge(0, 1.5)} aria-label="下へ">
                   下
                 </Button>
-                <Button type="button" variant="outline" onClick={() => nudge(1.5, 0)} aria-label="右へ">
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => nudge(1.5, 0)} aria-label="右へ">
                   右
                 </Button>
               </div>

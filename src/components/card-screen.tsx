@@ -1,10 +1,11 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { toPng } from "html-to-image"
 import { TacticalCard } from "@/components/tactical-card"
+import { useIntegrations } from "@/components/use-integrations"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,20 +15,55 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { exportNotion, removeCard } from "@/app/actions"
 import { downloadName } from "@/lib/card-logic"
+import { readCard, removeStoredCard } from "@/lib/repository"
+import { shareOrDownload } from "@/lib/share-file"
+import { SEED_CARD_ID } from "@/lib/seed"
 import { cn } from "cn"
 import type { Card } from "@/lib/types"
 
-export function CardScreen({
-  card,
-  notionEnabled,
-  sample,
-}: {
-  card: Card
-  notionEnabled: boolean
-  sample: boolean
-}) {
+export function CardRoute() {
+  const params = useParams<{ id: string }>()
+  const [card, setCard] = useState<Card | null>(null)
+  const [missing, setMissing] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    readCard(params.id)
+      .then((found) => {
+        if (cancelled) return
+        if (!found) {
+          setMissing(true)
+          return
+        }
+        setCard(found)
+        document.title = `${found.opponent} · ガウルボード`
+      })
+      .catch(() => {
+        if (!cancelled) setMissing(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [params.id])
+
+  if (missing) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-16 text-center">
+        <h1 className="font-mincho text-3xl">そのシートはありません</h1>
+        <Link href="/" className="mt-6 inline-block text-sm text-[#5C2D86] underline underline-offset-2">
+          アーカイブへ戻る
+        </Link>
+      </div>
+    )
+  }
+  if (!card) return <p className="px-4 py-10 text-sm text-[#6d6274]">読み込んでいます…</p>
+  return <CardScreen card={card} />
+}
+
+export function CardScreen({ card }: { card: Card }) {
+  const integrations = useIntegrations()
+  const notionEnabled = integrations?.notion ?? false
   const router = useRouter()
   const sheetRef = useRef<HTMLDivElement>(null)
   const [exporting, setExporting] = useState(false)
@@ -48,10 +84,10 @@ export function CardScreen({
         cacheBust: true,
         backgroundColor: "#FBF8F3",
       })
-      const link = document.createElement("a")
-      link.href = dataUrl
-      link.download = downloadName(card)
-      link.click()
+      const blob = await (await fetch(dataUrl)).blob()
+      const file = new File([blob], downloadName(card), { type: "image/png" })
+      const outcome = await shareOrDownload(file)
+      if (outcome === "cancelled") return
     } catch {
       setError("画像にできませんでした。もう一度試してください。")
     } finally {
@@ -62,7 +98,12 @@ export function CardScreen({
   async function onNotion() {
     setNotionState("sending")
     setError(null)
-    const result = await exportNotion(card.id)
+    const response = await fetch("/api/notion/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(card),
+    })
+    const result = (await response.json()) as { ok: true; url: string } | { ok: false; message: string }
     if (!result.ok) {
       setNotionState("idle")
       setError(result.message)
@@ -73,9 +114,9 @@ export function CardScreen({
   }
 
   async function onDelete() {
-    const result = await removeCard(card.id)
-    if (!result.ok) {
-      setError(result.message)
+    const removed = await removeStoredCard(card.id)
+    if (!removed) {
+      setError("カードが見つかりませんでした。")
       setConfirmDelete(false)
       return
     }
@@ -91,7 +132,7 @@ export function CardScreen({
         <Link href={`/matches/${card.id}/edit`} className={cn(buttonVariants({ variant: "outline", size: "lg" }))}>
           編集
         </Link>
-        <Button type="button" size="lg" onClick={() => void onExport()} disabled={exporting}>
+        <Button type="button" size="lg" className="min-h-11" onClick={() => void onExport()} disabled={exporting}>
           {exporting ? "書き出し中…" : "PNGで保存"}
         </Button>
         <Button type="button" size="lg" variant="secondary" disabled={!notionEnabled || notionState === "sending"} onClick={() => void onNotion()}>
@@ -101,12 +142,12 @@ export function CardScreen({
           削除
         </Button>
       </div>
-      {sample ? (
+      {card.id === SEED_CARD_ID ? (
         <p className="mb-4 rounded-lg bg-[#EFE6F6] px-3 py-2 text-sm text-[#3A1458]">
           これは初回に入っているサンプルです。町田戦の公開情報をもとにしたメモなので、編集しても消しても構いません。
         </p>
       ) : null}
-      {!notionEnabled ? (
+      {integrations && !notionEnabled ? (
         <p className="mb-4 text-xs leading-relaxed text-[#6d6274]">
           Notionへの書き出しはオフです。NOTION_API_TOKEN と NOTION_DATABASE_ID をサーバーに入れると、このカードをデータベースへ送れます。
         </p>

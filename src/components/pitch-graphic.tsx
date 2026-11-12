@@ -100,7 +100,7 @@ export function PitchGraphic({
             {selected ? (
               <circle cx={cx} cy={cy} r={4.15} fill="none" stroke="#E2B657" strokeWidth={0.38} />
             ) : null}
-            <circle cx={cx} cy={cy} r={3.15} fill="transparent" />
+            <circle cx={cx} cy={cy} r={interactive ? 5.4 : 3.15} fill="transparent" />
             <circle cx={cx} cy={cy} r={2.55} fill="#F6F1E8" stroke="#3A1458" strokeWidth={0.28} />
             <text
               x={cx}
